@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Лестница Иакова</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@500;700&display=swap">
+<style>
+:root{--card:#fff7e6;--text:#2a2140;--accent:#e0a526;--accent-text:#2a2140;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--card:#251f3d;--text:#fdf3dc;--accent:#f0b93a;--accent-text:#251f3d}}
+:root[data-theme="dark"]{--card:#251f3d;--text:#fdf3dc;--accent:#f0b93a;--accent-text:#251f3d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:#15123a;color:var(--text);font-family:"Lora",Georgia,"Times New Roman",serif;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+#stage{position:relative;width:100%;height:100%}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#score{position:absolute;top:12px;left:0;right:0;text-align:center;font-size:60px;font-weight:700;color:#fff3d6;text-shadow:0 2px 14px rgba(0,0,0,.45);pointer-events:none}
+#hint{position:absolute;top:86px;left:0;right:0;text-align:center;font-size:20px;font-weight:700;color:#fff3d6;text-shadow:0 2px 10px rgba(0,0,0,.55);pointer-events:none;min-height:26px}
+.overlay{position:absolute;inset:0;display:flex;padding:24px;overflow:auto}
+.overlay[hidden]{display:none}
+.card{margin:auto;background:var(--card);color:var(--text);border-radius:18px;padding:28px 26px;max-width:340px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+h1{margin:0 0 4px;font-size:32px;line-height:1.15}
+.ref{margin:0 0 16px;opacity:.65;font-size:15px;font-style:italic}
+p{margin:0 0 20px;line-height:1.5}
+button{font:inherit;font-weight:700;font-size:19px;border:0;border-radius:12px;padding:12px 34px;background:var(--accent);color:var(--accent-text);cursor:pointer}
+button:focus-visible{outline:3px solid var(--text);outline-offset:3px}
+.alt{background:transparent;color:var(--text);border:2px solid var(--text);font-size:16px;padding:8px 20px}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#opts button{display:block;width:100%;margin:0 0 10px;font-size:17px;padding:11px 14px}
+#opts button.ok{background:#3f9f5f;color:#fff}
+#opts button.bad{background:#c4493f;color:#fff}
+#qtext{font-size:20px;font-weight:700}
+#qfb{min-height:24px;margin:6px 0 14px}
+.verse{margin:0 0 16px;font-style:italic;line-height:1.45;font-size:16px}
+.verse i{display:block;margin-top:4px;font-size:14px;opacity:.7}
+#cardimg{display:block;margin:0 auto 8px;max-width:100%;max-height:30vh;width:auto;border-radius:10px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="score">0</div>
+  <div id="hint"></div>
+  <div class="overlay" id="menu">
+    <div class="card">
+      <h1>Лестница Иакова</h1>
+      <p class="ref">Бытие 28:12</p>
+      <p>Нажимай, когда ступень ровно над лестницей. Всё, что торчит, отвалится. Три идеальных попадания подряд возвращают ширину. Каждые 10 ступеней тебя ждёт вопрос.</p>
+      <div class="verse"><span id="vtext"></span><i id="vref"></i></div>
+      <p class="ref" id="rec"></p>
+      <div class="row"><button id="play">Играть</button><button id="daily" class="alt">Вызов дня</button><button id="snd" class="alt"></button></div>
+    </div>
+  </div>
+  <div class="overlay" id="over" hidden>
+    <div class="card">
+      <h1 id="res">Высота: 0</h1>
+      <p id="msg"></p>
+      <img id="cardimg" alt="Картинка с результатом">
+      <p class="ref">Зажми картинку, чтобы сохранить её</p>
+      <div class="row"><button id="again">Ещё раз</button><button id="share" class="alt"></button><button id="tomenu" class="alt">В меню</button></div>
+    </div>
+  </div>
+  <div class="overlay" id="quiz" hidden>
+    <div class="card">
+      <p class="ref">Вопрос на высоте</p>
+      <p id="qtext"></p>
+      <div id="opts"></div>
+      <p id="qfb"></p>
+      <button id="qnext" hidden>Дальше</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  var scoreEl = document.getElementById('score'), hintEl = document.getElementById('hint');
+  var menu = document.getElementById('menu'), over = document.getElementById('over');
+  var LW = 360, SH = 26, BASE_W = 170, GROUND = 110;
+  var cssW = 0, cssH = 0, dpr = 1, s = 1, ox = 0, LH = 0, stars = [], clouds = [];
+  var steps = [], cur = null, pieces = [], fx = [], cam = 0, score = 0, skyS = 0, streak = 0;
+  var state = 'menu', startT = 0, rnd = mk(Date.now());
+  var recEl = document.getElementById('rec'), sndEl = document.getElementById('snd');
+  var quiz = document.getElementById('quiz'), qtext = document.getElementById('qtext'), opts = document.getElementById('opts');
+  var qfb = document.getElementById('qfb'), qnext = document.getElementById('qnext');
+  var DEF = { best: 0, games: 0, streak: 0, sfx: true };
+  var st = load(), sfx = st.sfx !== false, AC = null, deck = [], runStreak = 0, qDone = false;
+  var daily = false, todayKey = 0, dayNum = 0, cq = 0, shareText = '';
+  var vtextEl = document.getElementById('vtext'), vrefEl = document.getElementById('vref');
+  var cardImg = document.getElementById('cardimg'), shareEl = document.getElementById('share');
+
+  // Синодальный перевод; [текст, ссылка]
+  var VERSES = [
+    ['Господь — Пастырь мой; я ни в чём не буду нуждаться.', 'Пс. 22:1'],
+    ['Ибо так возлюбил Бог мир, что отдал Сына Своего Единородного, дабы всякий верующий в Него, не погиб, но имел жизнь вечную.', 'Ин. 3:16'],
+    ['Всё могу в укрепляющем меня Иисусе Христе.', 'Флп. 4:13'],
+    ['Надейся на Господа всем сердцем твоим, и не полагайся на разум твой.', 'Притч. 3:5'],
+    ['Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе, и поддержу тебя десницею правды Моей.', 'Ис. 41:10'],
+    ['Придите ко Мне, все труждающиеся и обременённые, и Я успокою вас.', 'Мф. 11:28'],
+    ['А теперь пребывают сии три: вера, надежда, любовь; но любовь из них больше.', '1 Кор. 13:13'],
+    ['Слово Твоё — светильник ноге моей и свет стезе моей.', 'Пс. 118:105'],
+    ['Блаженны миротворцы, ибо они будут наречены сынами Божиими.', 'Мф. 5:9'],
+    ['И вот, Я с тобою, и сохраню тебя везде, куда ты ни пойдёшь, и возвращу тебя в сию землю; ибо Я не оставлю тебя, доколе не исполню того, что Я сказал тебе.', 'Быт. 28:15'],
+    ['Просите, и дано будет вам; ищите, и найдёте; стучите, и отворят вам.', 'Мф. 7:7'],
+    ['Я свет миру; кто последует за Мною, тот не будет ходить во тьме, но будет иметь свет жизни.', 'Ин. 8:12']
+  ];
+  function today() {
+    var n = new Date();
+    todayKey = n.getFullYear() * 10000 + (n.getMonth() + 1) * 100 + n.getDate();
+    dayNum = Math.floor(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 86400000);
+  }
+  function words5(txt) {
+    var re = /[А-Яа-яЁё]{5,}/g, m, o = [];
+    while ((m = re.exec(txt)) !== null) if (m[0] === m[0].toLowerCase() && o.indexOf(m[0]) < 0) o.push(m[0]);
+    return o;
+  }
+  function clozeQ() {
+    var v = VERSES[dayNum % VERSES.length], w = words5(v[0]);
+    var c = w[(dayNum + cq++) % w.length], pool = [];
+    VERSES.forEach(function (x) { words5(x[0]).forEach(function (u) { if (u !== c && pool.indexOf(u) < 0) pool.push(u); }); });
+    shuffle(pool);
+    var txt = v[0], i = 0;
+    while ((i = txt.indexOf(c, i)) >= 0) {
+      if (!/[А-Яа-яЁё]/.test(txt.charAt(i - 1)) && !/[А-Яа-яЁё]/.test(txt.charAt(i + c.length))) break;
+      i++;
+    }
+    if (i >= 0) txt = txt.slice(0, i) + '_____' + txt.slice(i + c.length);
+    return ['Дополни стих (' + v[1] + '): «' + txt + '»', [c, pool[0], pool[1]]];
+  }
+  function wrapText(x, txt, cx, y, maxW, lh) {
+    var ws = txt.split(' '), line = '', i, t2;
+    for (i = 0; i < ws.length; i++) {
+      t2 = line ? line + ' ' + ws[i] : ws[i];
+      if (x.measureText(t2).width > maxW && line) { x.fillText(line, cx, y); y += lh; line = ws[i]; } else line = t2;
+    }
+    x.fillText(line, cx, y);
+    return y;
+  }
+  function makeCard() {
+    try {
+      var W = 720, H = 1280, c = document.createElement('canvas'), x = c.getContext('2d'), i, K = skyAt(score);
+      c.width = W; c.height = H;
+      var g = x.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, K.top); g.addColorStop(0.6, K.mid); g.addColorStop(1, K.bot);
+      x.fillStyle = g; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#fff'; x.globalAlpha = K.star;
+      for (i = 0; i < 40; i++) { x.beginPath(); x.arc((i * 137) % W, (i * 89) % 700, 1 + (i % 3) * 0.6, 0, 6.2832); x.fill(); }
+      x.globalAlpha = 1;
+      var n = steps.length, hh = Math.min(34, 500 / n), k = 648 / LW, y0 = 860;
+      x.fillStyle = '#241a45'; x.fillRect(0, y0, W, H - y0);
+      for (i = 0; i < n; i++) {
+        var z = ZP[0];
+        for (var q = 0; q < ZP.length; q++) if (i >= ZP[q][0]) z = ZP[q];
+        x.fillStyle = 'hsl(' + z[1] + ',' + z[2] + '%,' + z[3] + '%)';
+        x.fillRect(36 + steps[i].x * k, y0 - (i + 1) * hh, steps[i].w * k, hh - 2);
+      }
+      var dd = ('0' + (todayKey % 100)).slice(-2), mm = ('0' + (Math.floor(todayKey / 100) % 100)).slice(-2);
+      x.textAlign = 'center'; x.fillStyle = '#fff3d6';
+      x.font = '700 54px Lora, Georgia, serif'; x.fillText('Лестница Иакова', W / 2, 100);
+      x.font = '700 170px Lora, Georgia, serif'; x.fillText(String(score), W / 2, 275);
+      x.font = '500 32px Lora, Georgia, serif'; x.fillText(daily ? 'вызов дня, ' + dd + '.' + mm : 'моя высота', W / 2, 327);
+      var v = VERSES[dayNum % VERSES.length];
+      x.font = 'italic 500 31px Lora, Georgia, serif';
+      var ly = wrapText(x, '«' + v[0] + '»', W / 2, y0 + 70, W - 100, 44);
+      x.font = '500 28px Lora, Georgia, serif'; x.fillText(v[1], W / 2, ly + 50);
+      cardImg.src = c.toDataURL('image/png');
+    } catch (e) {}
+  }
+  function copyText(txt, done) {
+    function fb() {
+      try {
+        var a = document.createElement('textarea');
+        a.value = txt; a.style.position = 'fixed'; a.style.opacity = '0';
+        document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a); done();
+      } catch (e) {}
+    }
+    try { navigator.clipboard.writeText(txt).then(done, fb); } catch (e) { fb(); }
+  }
+
+  function load() {
+    var d = {};
+    try { d = JSON.parse(localStorage.getItem('lestnitsa-v1') || '{}') || {}; } catch (e) { d = {}; }
+    for (var k in DEF) if (!(k in d)) d[k] = DEF[k];
+    return d;
+  }
+  function save() { st.sfx = sfx; try { localStorage.setItem('lestnitsa-v1', JSON.stringify(st)); } catch (e) {} }
+  function updateMenu() {
+    var v = VERSES[dayNum % VERSES.length];
+    vtextEl.textContent = '«' + v[0] + '»'; vrefEl.textContent = 'Стих дня: ' + v[1];
+    recEl.textContent = (st.best > 0 ? 'Рекорд: ' + st.best + '. Игр: ' + st.games + '. ' : 'Рекорд появится после первой игры. ') +
+      (st.daily && st.daily.d === todayKey ? 'Вызов дня: ' + st.daily.best + '.' : 'Вызов дня ждёт.');
+    sndEl.textContent = sfx ? 'Звук: вкл' : 'Звук: выкл';
+  }
+
+  function tone(f, d, type, v, delay) {
+    if (!sfx) return;
+    try {
+      if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+      if (AC.state === 'suspended') AC.resume();
+      var t0 = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || 'sine'; o.frequency.setValueAtTime(f, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(v || 0.15, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + d + 0.03);
+    } catch (e) {}
+  }
+  var PENT = [0, 2, 4, 7, 9];
+  function note(n) { return 261.63 * Math.pow(2, (PENT[n % 5] + 12 * Math.floor(n / 5)) / 12); }
+
+  // [вопрос, [верный ответ, неверный, неверный]]
+  var QS = [
+    ['Кто увидел во сне лестницу до неба?', ['Иаков', 'Моисей', 'Давид']],
+    ['Кто восходил и нисходил по лестнице из сна Иакова?', ['Ангелы Божии', 'Пророки', 'Пастухи']],
+    ['Что Иаков положил себе изголовьем перед тем сном?', ['Камень', 'Свёрнутый плащ', 'Охапку сена']],
+    ['Как Иаков назвал то место, когда проснулся?', ['Вефиль', 'Вифлеем', 'Иерихон']],
+    ['Как звали брата-близнеца Иакова?', ['Исав', 'Лаван', 'Иуда']],
+    ['Кто был отцом Иакова?', ['Исаак', 'Авраам', 'Ной']],
+    ['Какое имя получил Иаков после борьбы с Богом?', ['Израиль', 'Иуда', 'Иосиф']],
+    ['Сколько сыновей было у Иакова?', ['Двенадцать', 'Семь', 'Десять']],
+    ['Кого братья продали в Египет?', ['Иосифа', 'Вениамина', 'Левия']],
+    ['Сколько дней и ночей шёл дождь во время потопа?', ['Сорок', 'Семь', 'Сто']],
+    ['Кто победил Голиафа?', ['Давид', 'Саул', 'Самсон']],
+    ['Сколько книг в Новом Завете?', ['27', '12', '39']],
+    ['С какой книги начинается Библия?', ['Бытие', 'Исход', 'Евангелие от Матфея']],
+    ['Сколько лет Иаков работал за Лию и Рахиль?', ['14', '3', '40']]
+  ];
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), x = a[i]; a[i] = a[j]; a[j] = x; }
+    return a;
+  }
+  function askQuiz() {
+    state = 'quiz'; cur = null; hintEl.textContent = ''; qDone = false;
+    if (!deck.length) deck = shuffle(QS.map(function (_, i) { return i; }));
+    var q = daily ? clozeQ() : QS[deck.pop()];
+    qtext.textContent = q[0]; qfb.textContent = ''; qnext.hidden = true; opts.innerHTML = '';
+    shuffle(q[1].map(function (_, i) { return i; })).forEach(function (oi) {
+      var b = document.createElement('button');
+      b.textContent = q[1][oi];
+      b.addEventListener('click', function () { answer(b, oi === 0, q); });
+      opts.appendChild(b);
+    });
+    quiz.hidden = false;
+  }
+  function answer(btn, ok, q) {
+    if (qDone) return;
+    qDone = true;
+    var bs = opts.children, i;
+    for (i = 0; i < bs.length; i++) { bs[i].disabled = true; if (bs[i].textContent === q[1][0]) bs[i].className = 'ok'; }
+    var top = steps[steps.length - 1];
+    if (ok) {
+      var nw = Math.min(BASE_W, top.w + 20);
+      qfb.textContent = nw > top.w ? 'Верно! Ступень стала шире.' : 'Верно!';
+      top.x = Math.max(0, Math.min(LW - nw, top.x - (nw - top.w) / 2)); top.w = nw;
+      tone(523, 0.12, 'triangle', 0.15); tone(659, 0.12, 'triangle', 0.15, 0.1); tone(784, 0.25, 'triangle', 0.15, 0.2);
+    } else {
+      btn.className = 'bad';
+      qfb.textContent = 'Не совсем. Правильный ответ: ' + q[1][0] + '.';
+      tone(150, 0.3, 'square', 0.1);
+    }
+    qnext.hidden = false;
+  }
+
+  function mk(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  var KINDS = {
+    n: { name: '', k: 1, c: null },
+    f: { name: 'Быстрая ступень', k: 1.7, c: '#ff7a45' },
+    w: { name: 'Волна', k: 1, c: '#4fd1e8' },
+    g: { name: 'Призрак', k: 1.15, c: '#ffffff' }
+  };
+  function pick() {
+    var r = rnd(), n = score;
+    if (n < 4) return 'n';
+    if (n < 12) return r < 0.7 ? 'n' : 'f';
+    if (n < 25) return r < 0.5 ? 'n' : (r < 0.75 ? 'f' : 'w');
+    return r < 0.35 ? 'n' : (r < 0.6 ? 'f' : (r < 0.8 ? 'w' : 'g'));
+  }
+
+  function hx(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+  var SK = [
+    { v: 0, c: [hx('#15123a'), hx('#44307f'), hx('#e29a6b')], a: 0.7 },
+    { v: 12, c: [hx('#0a0824'), hx('#1d1a5a'), hx('#4a3a8f')], a: 1 },
+    { v: 30, c: [hx('#2b2a7a'), hx('#8a5aa8'), hx('#f4a98a')], a: 0.5 },
+    { v: 55, c: [hx('#2f5fb3'), hx('#6fa0e0'), hx('#f6d58e')], a: 0.08 },
+    { v: 85, c: [hx('#2a4fa3'), hx('#5f8fd8'), hx('#ffe3a3')], a: 0 }
+  ];
+  function skyAt(v) {
+    var i = 0;
+    while (i < SK.length - 2 && v >= SK[i + 1].v) i++;
+    var A = SK[i], B = SK[i + 1], f = Math.max(0, Math.min(1, (v - A.v) / (B.v - A.v)));
+    function m(k) {
+      var o = [];
+      for (var j = 0; j < 3; j++) o.push(Math.round(A.c[k][j] + (B.c[k][j] - A.c[k][j]) * f));
+      return 'rgb(' + o.join(',') + ')';
+    }
+    return { top: m(0), mid: m(1), bot: m(2), star: A.a + (B.a - A.a) * f };
+  }
+
+  // material by height: stone, wood, gold, light
+  var ZP = [[0, 262, 16, 58], [15, 30, 48, 50], [35, 44, 80, 56], [60, 48, 90, 70]];
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    cssW = cv.clientWidth; cssH = cv.clientHeight;
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+    var playW = Math.min(cssW, cssH * 0.62);
+    s = playW / LW; ox = (cssW - playW) / 2; LH = cssH / s;
+    stars = []; clouds = [];
+    for (var i = 0; i < 30; i++) stars.push({ x: Math.random() * cssW, y: Math.random() * cssH * 0.65, r: 0.6 + Math.random() * 1.3 });
+    for (var j = 0; j < 7; j++) clouds.push({ x: Math.random() * cssW, y: Math.random() * (cssH + 200), r: 22 + Math.random() * 26 });
+  }
+
+  function topY(i) { return LH - GROUND - (i + 1) * SH + cam; }
+
+  function newCur() {
+    var top = steps[steps.length - 1];
+    var dir = steps.length % 2 ? 1 : -1;
+    var kind = pick();
+    cur = {
+      w: top.w, dir: dir, kind: kind, ph: 0,
+      x: dir > 0 ? -top.w * 0.5 : LW - top.w * 0.5,
+      speed: Math.min(120 + score * 6, 350) * KINDS[kind].k
+    };
+    hintEl.textContent = KINDS[kind].name;
+    hintEl.style.color = KINDS[kind].c || '';
+  }
+
+  function reset(seed) {
+    rnd = mk(seed || Date.now());
+    steps = [{ x: (LW - BASE_W) / 2, w: BASE_W, kind: 'n' }];
+    pieces = []; fx = []; score = 0; cam = 0; skyS = 0; streak = 0; runStreak = 0; cq = 0;
+    scoreEl.textContent = '0';
+    newCur();
+  }
+
+  function finish() {
+    state = 'over';
+    hintEl.textContent = '';
+    st.games++;
+    var rec = score > st.best;
+    if (rec) st.best = score;
+    if (runStreak > st.streak) st.streak = runStreak;
+    save();
+    document.getElementById('res').textContent = 'Высота: ' + score;
+    var vv = VERSES[dayNum % VERSES.length];
+    var line = (rec ? 'Новый рекорд! ' : 'Рекорд: ' + st.best + '. ') + 'Лучшая серия идеальных: ' + st.streak + '.';
+    if (daily) {
+      if (!st.daily || st.daily.d !== todayKey) st.daily = { d: todayKey, best: 0 };
+      if (score > st.daily.best) st.daily.best = score;
+      save();
+      line = 'Вызов дня: лучший результат сегодня — ' + st.daily.best + '. ' + line;
+    }
+    document.getElementById('msg').textContent = line;
+    shareText = 'Лестница Иакова: высота ' + score + (daily ? ', вызов дня' : '') + '. Стих дня: ' + vv[1] + '. Сможешь выше?';
+    try { shareText += ' ' + location.href; } catch (e) {}
+    shareEl.textContent = navigator.share ? 'Поделиться' : 'Скопировать текст';
+    makeCard();
+    over.hidden = false;
+  }
+
+  function place() {
+    var top = steps[steps.length - 1], lvl = steps.length;
+    var left = Math.max(cur.x, top.x), right = Math.min(cur.x + cur.w, top.x + top.w), ov = right - left;
+    if (ov <= 0) {
+      pieces.push({ x: cur.x, w: cur.w, kind: cur.kind, lvl: lvl, off: 0, vy: 0, vx: cur.dir * 30, dx: 0 });
+      tone(170, 0.4, 'sawtooth', 0.12);
+      cur = null; finish(); return;
+    }
+    if (Math.abs(cur.x - top.x) < 5) {
+      streak++; if (streak > runStreak) runStreak = streak;
+      tone(note(score % 15 + 5), 0.25, 'sine', 0.12, 0.06);
+      var nw = top.w, nx = top.x;
+      if (streak >= 3) {
+        nw = Math.min(BASE_W, top.w + 8);
+        nx = Math.max(0, Math.min(LW - nw, top.x - (nw - top.w) / 2));
+      }
+      steps.push({ x: nx, w: nw, kind: cur.kind });
+      fx.push({ t: streak >= 3 ? 'Идеально ×' + streak : 'Идеально!', lvl: lvl, life: 1 });
+    } else {
+      streak = 0;
+      var px = cur.x < top.x ? cur.x : top.x + top.w;
+      pieces.push({ x: px, w: cur.w - ov, kind: cur.kind, lvl: lvl, off: 0, vy: 0, vx: cur.dir * 30, dx: 0 });
+      steps.push({ x: left, w: ov, kind: cur.kind });
+    }
+    score++; scoreEl.textContent = score;
+    tone(note(score % 15), 0.18, 'triangle', 0.16);
+    if (score % 10 === 0) askQuiz(); else newCur();
+  }
+
+  function start(d) {
+    today(); daily = !!d;
+    reset(daily ? todayKey : undefined); state = 'play'; startT = performance.now();
+    menu.hidden = true; over.hidden = true;
+  }
+
+  function tap() { if (state === 'play' && performance.now() - startT > 200) place(); }
+
+  cv.addEventListener('pointerdown', function (e) { e.preventDefault(); tap(); });
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' && state === 'play') { e.preventDefault(); if (!e.repeat) tap(); }
+  });
+  document.getElementById('play').addEventListener('click', function () { this.blur(); start(false); });
+  document.getElementById('daily').addEventListener('click', function () { this.blur(); start(true); });
+  document.getElementById('again').addEventListener('click', function () { this.blur(); start(daily); });
+  shareEl.addEventListener('click', function () {
+    var self = this;
+    this.blur();
+    if (navigator.share) { navigator.share({ text: shareText }).catch(function () {}); return; }
+    copyText(shareText, function () { self.textContent = 'Скопировано'; });
+  });
+  document.getElementById('tomenu').addEventListener('click', function () {
+    this.blur(); over.hidden = true; reset(); state = 'menu'; menu.hidden = false; updateMenu();
+  });
+  sndEl.addEventListener('click', function () { this.blur(); sfx = !sfx; save(); updateMenu(); tone(440, 0.12, 'triangle', 0.15); });
+  qnext.addEventListener('click', function () { quiz.hidden = true; newCur(); state = 'play'; startT = performance.now(); });
+
+  function update(dt) {
+    var target = Math.max(0, steps.length * SH + GROUND - LH * 0.45);
+    cam += (target - cam) * Math.min(1, dt * 6);
+    skyS += (score - skyS) * Math.min(1, dt * 1.2);
+    if (cur && (state === 'play' || state === 'menu')) {
+      cur.ph += dt * 4.2;
+      var sp = cur.kind === 'w' ? cur.speed * (1 + 0.65 * Math.sin(cur.ph)) : cur.speed;
+      cur.x += cur.dir * sp * dt;
+      if (cur.x > LW - cur.w * 0.5) { cur.x = LW - cur.w * 0.5; cur.dir = -1; }
+      else if (cur.x < -cur.w * 0.5) { cur.x = -cur.w * 0.5; cur.dir = 1; }
+    }
+    var i;
+    for (i = pieces.length - 1; i >= 0; i--) {
+      var p = pieces[i];
+      p.vy += 1400 * dt; p.off += p.vy * dt; p.dx += p.vx * dt;
+      if (p.off > LH + 400) pieces.splice(i, 1);
+    }
+    for (i = fx.length - 1; i >= 0; i--) {
+      fx[i].life -= dt * 1.1;
+      if (fx[i].life <= 0) fx.splice(i, 1);
+    }
+  }
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+  }
+  function drawStep(x, w, i, off, dx, kind, al) {
+    var y = topY(i) + (off || 0), xx = x + (dx || 0), z = ZP[0];
+    for (var q = 0; q < ZP.length; q++) if (i >= ZP[q][0]) z = ZP[q];
+    ctx.globalAlpha = al == null ? 1 : al;
+    ctx.fillStyle = 'hsl(' + z[1] + ',' + z[2] + '%,' + (z[3] - 13) + '%)'; rr(xx, y, w, SH - 2, 5); ctx.fill();
+    ctx.fillStyle = 'hsl(' + z[1] + ',' + z[2] + '%,' + z[3] + '%)'; rr(xx, y, w, SH - 9, 5); ctx.fill();
+    if (kind && KINDS[kind].c && w > 8) { ctx.fillStyle = KINDS[kind].c; rr(xx + 3, y + 2, w - 6, 3, 2); ctx.fill(); }
+    ctx.strokeStyle = 'rgba(25,15,55,.35)'; ctx.lineWidth = 1.2; rr(xx, y, w, SH - 2, 5); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var K = skyAt(skyS), g = ctx.createLinearGradient(0, 0, 0, cssH), k, c;
+    g.addColorStop(0, K.top); g.addColorStop(0.6, K.mid); g.addColorStop(1, K.bot);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cssW, cssH);
+    if (K.star > 0.01) {
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = K.star;
+      for (k = 0; k < stars.length; k++) { ctx.beginPath(); ctx.arc(stars[k].x, stars[k].y, stars[k].r, 0, 6.2832); ctx.fill(); }
+    }
+    var ca = Math.max(0, Math.min(1, (skyS - 25) / 20)) * 0.55;
+    if (ca > 0.01) {
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = ca;
+      for (k = 0; k < clouds.length; k++) {
+        c = clouds[k];
+        var cy = ((c.y + cam * s * 0.3) % (cssH + 200)) - 100;
+        ctx.beginPath();
+        ctx.arc(c.x, cy, c.r, 0, 6.2832);
+        ctx.arc(c.x + c.r * 0.9, cy + c.r * 0.2, c.r * 0.8, 0, 6.2832);
+        ctx.arc(c.x - c.r * 0.9, cy + c.r * 0.25, c.r * 0.7, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate(ox, 0); ctx.scale(s, s);
+    ctx.beginPath(); ctx.rect(0, 0, LW, LH); ctx.clip();
+    var gy = LH - GROUND + cam;
+    ctx.fillStyle = '#241a45'; ctx.fillRect(0, gy, LW, LH - gy + 200);
+    ctx.fillStyle = '#6b4a8a'; ctx.fillRect(0, gy, LW, 3);
+    var i;
+    for (i = 0; i < steps.length; i++) drawStep(steps[i].x, steps[i].w, i, 0, 0, steps[i].kind);
+    if (cur) {
+      var top = steps[steps.length - 1], al = 1;
+      if (cur.kind === 'g') al = 0.2 + 0.8 * Math.min(1, Math.abs(cur.x + cur.w / 2 - (top.x + top.w / 2)) / 90);
+      drawStep(cur.x, cur.w, steps.length, 0, 0, cur.kind, al);
+    }
+    for (i = 0; i < pieces.length; i++) drawStep(pieces[i].x, pieces[i].w, pieces[i].lvl, pieces[i].off, pieces[i].dx, pieces[i].kind);
+    ctx.font = '700 20px Lora, Georgia, serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff3d6';
+    for (i = 0; i < fx.length; i++) {
+      ctx.globalAlpha = Math.min(1, fx[i].life * 1.5);
+      ctx.fillText(fx[i].t, LW / 2, topY(fx[i].lvl) - 8 - (1 - fx[i].life) * 40);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min((now - last) / 1000, 0.05); last = now;
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  today(); resize(); reset(); updateMenu();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
